@@ -1,26 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- res/layout/activity_main.xml -->
-<LinearLayout
+<androidx.coordinatorlayout.widget.CoordinatorLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:gravity="center"
-    android:padding="16dp">
+    tools:context=".MainActivity">
 
-    <!-- Title Text -->
-    <TextView
+    <com.google.android.material.bottomappbar.BottomAppBar
+        android:id="@+id/bottomAppBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:fabAlignmentMode="center"
+        app:fabAnchorMode="cradle"
+        app:fabCradleMargin="16dp"
+        app:fabCradleVerticalOffset="20dp"
+        app:fabCradleRoundedCornerRadius="6dp"
+        android:layout_gravity="bottom">
+
+        <com.google.android.material.bottomnavigation.BottomNavigationView
+            android:id="@+id/bottomNavigation"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="12dp"
+            android:background="@android:color/transparent"
+            app:menu="@menu/bottom_nav_menu"
+            app:labelVisibilityMode="labeled"
+            android:layout_marginBottom="-45dp"
+            android:elevation="0dp"/>
+
+    </com.google.android.material.bottomappbar.BottomAppBar>
+    
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/fab_chatbot"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Welcome to JKT Go!"
-        android:textSize="24sp"
-        android:textStyle="bold"
-        android:paddingBottom="24dp"/>
+        app:layout_anchor="@id/bottomAppBar"
+        android:src="@drawable/baseline_chat_24"
+        android:contentDescription="Chatbot"/>
 
-    <!-- Button to navigate to Chatbot -->
-    <Button
-        android:id="@+id/button_chatbot"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Explore with Chatbot"/>
-</LinearLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

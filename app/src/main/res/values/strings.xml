@@ -1,5 +1,8 @@
 <resources>
     <string name="app_name">JKTGO!</string>
     <string name="chatRecyclerView">JKTGO!</string>
+    <string name="dashboard">Dashboard</string>
+    <string name="chatbot">Chatbot</string>
+    <string name="profile">Profile</string>
 
 </resources>
