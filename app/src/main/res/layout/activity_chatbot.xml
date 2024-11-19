@@ -79,7 +79,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:hint="Type a message"
-            android:textColor="@android:color/black"
+            android:textColor="@android:color/white"
             android:padding="8dp" />
 
         <Button
