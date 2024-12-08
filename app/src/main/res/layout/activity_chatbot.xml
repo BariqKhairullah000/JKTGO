@@ -1,5 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
-
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
@@ -41,7 +40,7 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- FrameLayout to layer the ImageView and RecyclerView -->
+    <!-- FrameLayout to layer the ImageView, RecyclerView, and ProgressBar -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -64,6 +63,15 @@
             android:layout_height="match_parent"
             android:paddingTop="100dp"
             android:clipToPadding="false" />
+
+        <!-- ProgressBar for loading state -->
+        <ProgressBar
+            android:id="@+id/progressBar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:visibility="gone"
+            android:indeterminateTint="@color/white"/>
     </FrameLayout>
 
     <!-- Input area for user message -->
@@ -80,6 +88,8 @@
             android:layout_weight="1"
             android:hint="Type a message"
             android:textColor="@android:color/white"
+            android:textColorHint="@android:color/darker_gray"
+            android:backgroundTint="@color/white"
             android:padding="8dp" />
 
         <Button
