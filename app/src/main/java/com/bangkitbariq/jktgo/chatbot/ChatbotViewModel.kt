@@ -5,16 +5,20 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.delay
+import com.google.gson.GsonBuilder
+import com.google.gson.JsonParseException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
-import okhttp3.ResponseBody
+import okhttp3.Protocol
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 class ChatbotViewModel : ViewModel() {
@@ -24,42 +28,31 @@ class ChatbotViewModel : ViewModel() {
     private val _networkState = MutableLiveData<NetworkState>()
     val networkState: LiveData<NetworkState> = _networkState
 
-    private val logging = HttpLoggingInterceptor().apply {
-        level = HttpLoggingInterceptor.Level.BODY
-    }
-
     private val client = OkHttpClient.Builder()
-        .addInterceptor(logging)
-        .addInterceptor { chain ->
-            val request = chain.request()
-            Log.d(TAG, "Request URL: ${request.url}")
-            Log.d(TAG, "Request Headers: ${request.headers}")
-
-            val response = chain.proceed(request)
-            Log.d(TAG, "Response Code: ${response.code}")
-            Log.d(TAG, "Response Headers: ${response.headers}")
-
-            // Safely log response body
-            response.body?.let { responseBody ->
-                val contentType = responseBody.contentType()
-                val bodyString = responseBody.string()
-                Log.d(TAG, "Response Body: $bodyString")
-
-                // Create new response with a new body
-                return@addInterceptor response.newBuilder()
-                    .body(ResponseBody.create(contentType, bodyString))
-                    .build()
-            } ?: response
-        }
+        .addInterceptor(HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BODY
+        })
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .protocols(listOf(Protocol.HTTP_1_1))
+        .addInterceptor { chain ->
+            val original = chain.request()
+            val requestBuilder = original.newBuilder()
+                .header("Connection", "close")
+            chain.proceed(requestBuilder.build())
+        }
         .build()
 
     private val retrofit = Retrofit.Builder()
         .baseUrl("http://34.128.86.142:5000/")
         .client(client)
-        .addConverterFactory(GsonConverterFactory.create())
+        .addConverterFactory(GsonConverterFactory.create(
+            GsonBuilder()
+                .setLenient()
+                .create()
+        ))
         .build()
 
     private val api = retrofit.create(ChatbotAPI::class.java)
@@ -68,40 +61,37 @@ class ChatbotViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 _networkState.value = NetworkState.LOADING
-
                 Log.d(TAG, "Sending message: $message")
                 addMessage(ChatMessage(text = message, isUser = true))
 
-                val requestBody = ChatRequestBody(text = message)
-                var retryCount = 0
-                var lastException: Exception? = null
-
-                while (retryCount < 3) {
-                    try {
-                        val response = api.sendMessage(requestBody)
-                        if (response.isSuccessful) {
-                            handleSuccessResponse(response)
-                            _networkState.value = NetworkState.IDLE
-                            return@launch
+                when {
+                    message.contains("semua hotel", ignoreCase = true) -> {
+                        handleGetAllHotels()
+                    }
+                    message.contains("semua wisata", ignoreCase = true) -> {
+                        handleGetAllTourism()
+                    }
+                    message.contains("hotel", ignoreCase = true) -> {
+                        handleHotelSearch(message)
+                    }
+                    message.contains("wisata", ignoreCase = true) -> {
+                        handleTourismSearch(message)
+                    }
+                    else -> {
+                        // Try tourism first, if no results, try hotel
+                        val tourismResponse = api.processMessage(ChatRequestBody(text = message))
+                        if (tourismResponse.isSuccessful && !tourismResponse.body().isNullOrEmpty()) {
+                            handleTourismResponse(tourismResponse)
                         } else {
-                            handleErrorResponse(response)
-                            break
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Attempt ${retryCount + 1} failed", e)
-                        lastException = e
-                        retryCount++
-                        if (retryCount < 3) {
-                            delay(1000 * retryCount.toLong()) // Exponential backoff
+                            // Try hotel search as fallback
+                            val hotelRequest = HotelFilterRequest(0, Double.MAX_VALUE, 0.0, "")
+                            val hotelResponse = api.searchHotel(hotelRequest)
+                            handleHotelResponse(hotelResponse)
                         }
                     }
                 }
 
-                if (lastException != null) {
-                    handleException(lastException)
-                }
-
-                _networkState.value = NetworkState.ERROR
+                _networkState.value = NetworkState.IDLE
             } catch (e: Exception) {
                 handleException(e)
                 _networkState.value = NetworkState.ERROR
@@ -109,46 +99,128 @@ class ChatbotViewModel : ViewModel() {
         }
     }
 
-    private fun handleSuccessResponse(response: Response<PreprocessResponse>) {
-        response.body()?.let { preprocessResponse ->
-            Log.d(TAG, "Success response: $preprocessResponse")
-            addMessage(ChatMessage(
-                text = preprocessResponse.response,
-                isUser = false
-            ))
-        } ?: run {
-            Log.e(TAG, "Response body is null")
-            addMessage(ChatMessage(
-                text = "Maaf, terjadi kesalahan dalam memproses respons",
-                isUser = false
-            ))
+    private suspend fun handleGetAllHotels() {
+        try {
+            val response = withContext(Dispatchers.IO) {
+                api.getAllHotels()
+            }
+            handleHotelResponse(response)
+        } catch (e: Exception) {
+            handleException(e)
         }
     }
 
-    private fun handleErrorResponse(response: Response<PreprocessResponse>) {
-        val errorBody = response.errorBody()?.string()
-        Log.e(TAG, "Error response: $errorBody")
+    private suspend fun handleGetAllTourism() {
+        try {
+            val response = withContext(Dispatchers.IO) {
+                api.getAllTourism()
+            }
+            handleTourismResponse(response)
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
 
+    private suspend fun handleHotelSearch(message: String) {
+        try {
+            val request = HotelFilterRequest(0, Double.MAX_VALUE, 0.0, "")
+            val response = withContext(Dispatchers.IO) {
+                api.searchHotel(request)
+            }
+            handleHotelResponse(response)
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
+
+    private suspend fun handleTourismSearch(message: String) {
+        try {
+            val response = withContext(Dispatchers.IO) {
+                api.processMessage(ChatRequestBody(text = message))
+            }
+            handleTourismResponse(response)
+        } catch (e: Exception) {
+            handleException(e)
+        }
+    }
+
+    private fun handleHotelResponse(response: Response<List<HotelResponse>>) {
+        if (response.isSuccessful) {
+            response.body()?.let { hotels ->
+                if (hotels.isNotEmpty()) {
+                    val responseText = formatHotelResponse(hotels)
+                    addMessage(ChatMessage(text = responseText, isUser = false))
+                } else {
+                    addMessage(ChatMessage(text = "Maaf, tidak ada hotel yang ditemukan", isUser = false))
+                }
+            } ?: addMessage(ChatMessage(text = "Maaf, tidak dapat memuat data hotel", isUser = false))
+        } else {
+            handleErrorResponse(response)
+        }
+    }
+
+    private fun handleTourismResponse(response: Response<List<TourismResponse>>) {
+        if (response.isSuccessful) {
+            response.body()?.let { tourismList ->
+                if (tourismList.isNotEmpty()) {
+                    val responseText = formatTourismResponse(tourismList)
+                    addMessage(ChatMessage(text = responseText, isUser = false))
+                } else {
+                    addMessage(ChatMessage(text = "Maaf, tidak ada tempat wisata yang ditemukan", isUser = false))
+                }
+            } ?: addMessage(ChatMessage(text = "Maaf, tidak dapat memuat data wisata", isUser = false))
+        } else {
+            handleErrorResponse(response)
+        }
+    }
+
+    private fun formatHotelResponse(hotels: List<HotelResponse>): String {
+        return buildString {
+            appendLine("Berikut hotel yang saya temukan:")
+            hotels.forEachIndexed { index, hotel ->
+                appendLine("\n${index + 1}. ${hotel.name}")
+                appendLine("   Rating: ⭐ ${hotel.starRating} (${hotel.userRating}/10)")
+                appendLine("   Lokasi: ${hotel.region}")
+                appendLine("   Harga: Rp${String.format(Locale.US, "%,.0f", hotel.originalRate_perNight_totalFare)}/malam")
+                if (hotel.hotelFeatures.isNotBlank()) {
+                    appendLine("   Fasilitas: ${hotel.hotelFeatures}")
+                }
+            }
+        }
+    }
+
+    private fun formatTourismResponse(tourismList: List<TourismResponse>): String {
+        return buildString {
+            appendLine("Berikut tempat wisata yang saya temukan:")
+            tourismList.forEachIndexed { index, tourism ->
+                appendLine("\n${index + 1}. ${tourism.Place_Name}")
+                appendLine("   Kategori: ${tourism.Category}")
+                appendLine("   Rating: ⭐ ${tourism.Rating}/100")
+                appendLine("   Lokasi: ${tourism.City}")
+                appendLine("   Harga: Rp${String.format(Locale.US, "%,d", tourism.Price.toInt())}")
+                appendLine("   Deskripsi: ${tourism.Description.take(150)}...")
+            }
+        }
+    }
+
+    private fun handleErrorResponse(response: Response<*>) {
         val errorMessage = when (response.code()) {
             400 -> "Format permintaan tidak valid"
-            404 -> "Endpoint tidak ditemukan"
+            404 -> "Data tidak ditemukan"
             500 -> "Terjadi kesalahan pada server"
             else -> "Terjadi kesalahan: ${response.code()}"
         }
-
         addMessage(ChatMessage(text = errorMessage, isUser = false))
     }
 
     private fun handleException(e: Exception) {
         Log.e(TAG, "Exception occurred", e)
-        Log.e(TAG, "Stack trace: ${e.stackTraceToString()}")
-
         val errorMessage = when (e) {
             is UnknownHostException -> "Tidak dapat terhubung ke server. Periksa koneksi internet Anda."
             is SocketTimeoutException -> "Waktu koneksi habis. Coba lagi nanti."
-            else -> "Terjadi kesalahan koneksi: ${e.message}"
+            is JsonParseException -> "Terjadi kesalahan saat memproses data. Mohon coba lagi."
+            else -> "Terjadi kesalahan koneksi. Mohon coba lagi beberapa saat."
         }
-
         addMessage(ChatMessage(text = errorMessage, isUser = false))
     }
 
