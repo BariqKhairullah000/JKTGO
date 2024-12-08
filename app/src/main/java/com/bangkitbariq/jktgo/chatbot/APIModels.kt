@@ -38,3 +38,5 @@ data class TourismFilterRequest(
 data class ChatRequestBody(
     val text: String
 )
+
+
