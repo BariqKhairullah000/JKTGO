@@ -5,13 +5,8 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.gson.GsonBuilder
-import com.google.gson.JsonParseException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
-import okhttp3.Protocol
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Response
 import retrofit2.Retrofit
@@ -35,24 +30,12 @@ class ChatbotViewModel : ViewModel() {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .protocols(listOf(Protocol.HTTP_1_1))
-        .addInterceptor { chain ->
-            val original = chain.request()
-            val requestBuilder = original.newBuilder()
-                .header("Connection", "close")
-            chain.proceed(requestBuilder.build())
-        }
         .build()
 
     private val retrofit = Retrofit.Builder()
         .baseUrl("http://34.128.86.142:5000/")
         .client(client)
-        .addConverterFactory(GsonConverterFactory.create(
-            GsonBuilder()
-                .setLenient()
-                .create()
-        ))
+        .addConverterFactory(GsonConverterFactory.create())
         .build()
 
     private val api = retrofit.create(ChatbotAPI::class.java)
@@ -71,23 +54,14 @@ class ChatbotViewModel : ViewModel() {
                     message.contains("semua wisata", ignoreCase = true) -> {
                         handleGetAllTourism()
                     }
-                    message.contains("hotel", ignoreCase = true) -> {
-                        handleHotelSearch(message)
-                    }
                     message.contains("wisata", ignoreCase = true) -> {
                         handleTourismSearch(message)
                     }
+                    message.contains("hotel", ignoreCase = true) -> {
+                        handleHotelSearch(message)
+                    }
                     else -> {
-                        // Try tourism first, if no results, try hotel
-                        val tourismResponse = api.processMessage(ChatRequestBody(text = message))
-                        if (tourismResponse.isSuccessful && !tourismResponse.body().isNullOrEmpty()) {
-                            handleTourismResponse(tourismResponse)
-                        } else {
-                            // Try hotel search as fallback
-                            val hotelRequest = HotelFilterRequest(0, Double.MAX_VALUE, 0.0, "")
-                            val hotelResponse = api.searchHotel(hotelRequest)
-                            handleHotelResponse(hotelResponse)
-                        }
+                        handleTourismSearch(message)
                     }
                 }
 
@@ -100,90 +74,77 @@ class ChatbotViewModel : ViewModel() {
     }
 
     private suspend fun handleGetAllHotels() {
-        try {
-            val response = withContext(Dispatchers.IO) {
-                api.getAllHotels()
-            }
-            handleHotelResponse(response)
-        } catch (e: Exception) {
-            handleException(e)
-        }
-    }
-
-    private suspend fun handleGetAllTourism() {
-        try {
-            val response = withContext(Dispatchers.IO) {
-                api.getAllTourism()
-            }
-            handleTourismResponse(response)
-        } catch (e: Exception) {
-            handleException(e)
-        }
-    }
-
-    private suspend fun handleHotelSearch(message: String) {
-        try {
-            val request = HotelFilterRequest(0, Double.MAX_VALUE, 0.0, "")
-            val response = withContext(Dispatchers.IO) {
-                api.searchHotel(request)
-            }
-            handleHotelResponse(response)
-        } catch (e: Exception) {
-            handleException(e)
-        }
-    }
-
-    private suspend fun handleTourismSearch(message: String) {
-        try {
-            val response = withContext(Dispatchers.IO) {
-                api.processMessage(ChatRequestBody(text = message))
-            }
-            handleTourismResponse(response)
-        } catch (e: Exception) {
-            handleException(e)
-        }
-    }
-
-    private fun handleHotelResponse(response: Response<List<HotelResponse>>) {
+        val response = api.getAllHotels()
         if (response.isSuccessful) {
             response.body()?.let { hotels ->
-                if (hotels.isNotEmpty()) {
-                    val responseText = formatHotelResponse(hotels)
-                    addMessage(ChatMessage(text = responseText, isUser = false))
-                } else {
-                    addMessage(ChatMessage(text = "Maaf, tidak ada hotel yang ditemukan", isUser = false))
-                }
-            } ?: addMessage(ChatMessage(text = "Maaf, tidak dapat memuat data hotel", isUser = false))
+                val responseText = formatHotelResponse(hotels)
+                addMessage(ChatMessage(text = responseText, isUser = false))
+            } ?: addMessage(ChatMessage(text = "Tidak ada hotel yang ditemukan", isUser = false))
         } else {
             handleErrorResponse(response)
         }
     }
 
-    private fun handleTourismResponse(response: Response<List<TourismResponse>>) {
+    private suspend fun handleGetAllTourism() {
+        val response = api.getAllTourism()
         if (response.isSuccessful) {
             response.body()?.let { tourismList ->
-                if (tourismList.isNotEmpty()) {
-                    val responseText = formatTourismResponse(tourismList)
-                    addMessage(ChatMessage(text = responseText, isUser = false))
-                } else {
-                    addMessage(ChatMessage(text = "Maaf, tidak ada tempat wisata yang ditemukan", isUser = false))
-                }
-            } ?: addMessage(ChatMessage(text = "Maaf, tidak dapat memuat data wisata", isUser = false))
+                val responseText = formatTourismResponse(tourismList)
+                addMessage(ChatMessage(text = responseText, isUser = false))
+            } ?: addMessage(ChatMessage(text = "Tidak ada tempat wisata yang ditemukan", isUser = false))
+        } else {
+            handleErrorResponse(response)
+        }
+    }
+
+    private suspend fun handleHotelSearch(message: String) {
+        val hotelResponse = api.searchHotel(
+            HotelFilterRequest(
+                star_rating = 0,
+                max_price = Double.MAX_VALUE,
+                min_user_rating = 0.0,
+                region = ""
+            )
+        )
+        if (hotelResponse.isSuccessful) {
+            hotelResponse.body()?.let { hotels ->
+                val responseText = formatHotelResponse(hotels)
+                addMessage(ChatMessage(text = responseText, isUser = false))
+            } ?: addMessage(ChatMessage(text = "Maaf, tidak menemukan hotel yang sesuai", isUser = false))
+        } else {
+            handleErrorResponse(hotelResponse)
+        }
+    }
+
+    private suspend fun handleTourismSearch(message: String) {
+        val response = api.processMessage(ChatRequestBody(text = message))
+        if (response.isSuccessful) {
+            val tourismList = response.body()
+            if (!tourismList.isNullOrEmpty()) {
+                val responseText = formatTourismResponse(tourismList)
+                addMessage(ChatMessage(text = responseText, isUser = false))
+            } else {
+                addMessage(ChatMessage(text = "Maaf, tidak ada tempat wisata yang ditemukan", isUser = false))
+            }
         } else {
             handleErrorResponse(response)
         }
     }
 
     private fun formatHotelResponse(hotels: List<HotelResponse>): String {
-        return buildString {
-            appendLine("Berikut hotel yang saya temukan:")
-            hotels.forEachIndexed { index, hotel ->
-                appendLine("\n${index + 1}. ${hotel.name}")
-                appendLine("   Rating: ⭐ ${hotel.starRating} (${hotel.userRating}/10)")
-                appendLine("   Lokasi: ${hotel.region}")
-                appendLine("   Harga: Rp${String.format(Locale.US, "%,.0f", hotel.originalRate_perNight_totalFare)}/malam")
-                if (hotel.hotelFeatures.isNotBlank()) {
-                    appendLine("   Fasilitas: ${hotel.hotelFeatures}")
+        return if (hotels.isEmpty()) {
+            "Maaf, tidak ada hotel yang ditemukan sesuai kriteria Anda."
+        } else {
+            buildString {
+                appendLine("Berikut hotel yang saya temukan:")
+                hotels.forEachIndexed { index, hotel ->
+                    appendLine("\n${index + 1}. ${hotel.name}")
+                    appendLine("   Rating: ⭐ ${hotel.starRating} (${hotel.userRating}/10)")
+                    appendLine("   Lokasi: ${hotel.region}")
+                    appendLine("   Harga: Rp${String.format(Locale.US, "%,.0f", hotel.originalRate_perNight_totalFare)}/malam")
+                    if (hotel.hotelFeatures.isNotBlank()) {
+                        appendLine("   Fasilitas: ${hotel.hotelFeatures}")
+                    }
                 }
             }
         }
@@ -218,8 +179,7 @@ class ChatbotViewModel : ViewModel() {
         val errorMessage = when (e) {
             is UnknownHostException -> "Tidak dapat terhubung ke server. Periksa koneksi internet Anda."
             is SocketTimeoutException -> "Waktu koneksi habis. Coba lagi nanti."
-            is JsonParseException -> "Terjadi kesalahan saat memproses data. Mohon coba lagi."
-            else -> "Terjadi kesalahan koneksi. Mohon coba lagi beberapa saat."
+            else -> "Terjadi kesalahan: ${e.message}"
         }
         addMessage(ChatMessage(text = errorMessage, isUser = false))
     }
