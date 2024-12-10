@@ -98,22 +98,39 @@ class ChatbotViewModel : ViewModel() {
     }
 
     private suspend fun handleHotelSearch(message: String) {
+        // Ekstrak lokasi dari pesan
+        val region = extractRegion(message)
+
+        // Buat permintaan ke API dengan filter berdasarkan lokasi
         val hotelResponse = api.searchHotel(
             HotelFilterRequest(
                 star_rating = 0,
                 max_price = Double.MAX_VALUE,
                 min_user_rating = 0.0,
-                region = ""
+                region = region // Masukkan lokasi ke dalam filter
             )
         )
+
+        // Proses respons dari API
         if (hotelResponse.isSuccessful) {
             hotelResponse.body()?.let { hotels ->
                 val responseText = formatHotelResponse(hotels)
                 addMessage(ChatMessage(text = responseText, isUser = false))
-            } ?: addMessage(ChatMessage(text = "Maaf, tidak menemukan hotel yang sesuai", isUser = false))
+            } ?: addMessage(ChatMessage(text = "Maaf, tidak menemukan hotel di $region.", isUser = false))
         } else {
             handleErrorResponse(hotelResponse)
         }
+    }
+
+    // Fungsi untuk mengekstrak lokasi dari pesan
+    private fun extractRegion(message: String): String {
+        val regions = listOf("Menteng", "Sudirman", "Senen", "Tanah Abang", "Senayan", "Lebak Bulus", "Kebong Kacang", "Petojo Utara", "Cilandak Timur" ) // Daftar area
+        for (region in regions) {
+            if (message.contains(region, ignoreCase = true)) {
+                return region
+            }
+        }
+        return "" // Jika tidak ada lokasi yang ditemukan
     }
 
     private suspend fun handleTourismSearch(message: String) {
